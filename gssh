@@ -1,0 +1,234 @@
+#!/usr/bin/python
+
+import time
+import threading
+import subprocess
+import sys
+import select
+import argparse
+
+# templates
+Template = '%*s%s \033[01;32m->\033[0m %s'
+ErrTemplate = '%*s%s \033[01;31m=>\033[0m %s'
+if not sys.stdout.isatty():
+	Template = '%*s%s -> %s'
+	ErrTemplate = '%*s%s => %s'
+
+# ssh server
+class SshServer(threading.Thread):
+	def __init__(self, progress, username, address, command, nostrict=False):
+		self.progress = progress
+		self.username = username
+		self.address = address
+		self.command = command
+		self.nostrict = nostrict
+
+		# stats
+		self.stdout_lines = 0
+		self.stderr_lines = 0
+
+		super(SshServer, self).__init__()
+
+		# update process stats
+		self.progress.start(self.address)
+
+	# run the process
+	def run(self):
+		StrictChecking = 'StrictHostKeyChecking=yes'
+		if self.nostrict:
+			StrictChecking = 'StrictHostKeyChecking=no'
+
+		# start subprocess
+		cmd = subprocess.Popen([
+			'env',
+			'ssh',
+			'-A',
+			'-o', 'PasswordAuthentication=no',
+			'-o', StrictChecking,
+			'-o', 'GSSAPIAuthentication=no',
+			'-o', 'HostbasedAuthentication=no',
+			'-l', self.username,
+			self.address,
+			self.command],
+			
+			stdout=subprocess.PIPE,
+			stderr=subprocess.PIPE,
+			shell=False)
+
+		# poll stdout and stderr for incoming data
+		poll = select.poll()
+		poll.register(cmd.stdout.fileno(), select.POLLIN | select.POLLPRI | select.POLLHUP)
+		poll.register(cmd.stderr.fileno(), select.POLLIN | select.POLLPRI | select.POLLHUP)
+
+		fdhup = 2
+		while cmd.poll() is None:
+			evlist = poll.poll()
+
+			for fd, ev in evlist:
+
+				if ev & select.POLLHUP == select.POLLHUP:
+					fdhup -= 1
+					if not fdhup:
+						cmd.wait()
+						break
+
+				if ev & select.POLLIN == select.POLLIN or ev & select.POLLPRI == select.POLLPRI:
+					if fd == cmd.stdout.fileno():
+						# stdout print
+						self.progress.print_output(sys.stdout, Template, self.address, cmd.stdout.readline())
+						self.stdout_lines += 1
+					if fd == cmd.stderr.fileno():
+						# stderr print
+						self.progress.print_output(sys.stderr, ErrTemplate, self.address, cmd.stderr.readline())
+						self.stderr_lines += 1
+
+		self.progress.stop()
+
+# print group progress in a status line
+class ScreenProgress(object):
+	# class constructor
+	def __init__(self):
+		self.active = 0
+		self.total = 0
+		self.complete = 0
+
+		self.max_hostname_len = 0
+
+		# thread mutex
+		self.lock = threading.RLock()
+
+	# clear status line
+	def clear(self):
+		sys.stderr.write('\r%*s\r'%(41, ' '))
+
+	# print a new status line
+	def status(self):
+		sys.stderr.write(
+			'[%d/%d] %.2f%% complete, %d active' % (
+				self.complete,
+				self.total,
+				float(self.complete)*float(100.0)/float(self.total),
+				self.active))
+
+	# update progress line on stderr
+	def update(self):
+		self.clear()
+		self.status()
+		sys.stderr.flush()
+
+
+	# print server message to stdout
+	def print_output(self, outdev, template, address, line):
+		with self.lock:
+			self.clear()
+			outdev.write(
+					template % (
+						self.max_hostname_len - len(address),
+						' ',
+						address,
+						line))
+			self.status()
+			outdev.flush()
+			if outdev != sys.stderr:
+				sys.stderr.flush()
+
+
+	# start a new process
+	def start(self, hostname):
+		if len(hostname)+1 > self.max_hostname_len:
+			self.max_hostname_len = len(hostname)+1
+
+	# update stats at process stop
+	def stop(self):
+		with self.lock:
+			self.active -= 1
+			self.complete += 1
+			self.update()
+
+
+# group ssh servers to a single object
+class SshGroup(object):
+
+	# class constructor
+	def __init__(self, args):
+		self.args = args
+		self.servers = []
+		self.progress = ScreenProgress()
+
+	# wait until there are at most n processes left
+	def wait(self, n=0):
+		while True:
+			if self.progress.active == 0 or self.progress.active < n:
+				break
+			time.sleep(0.1)
+
+	# start ssh command
+	def command(self, username, address, command):
+		ssh = SshServer(self.progress, username, address, command, self.args.nostrict)
+		self.servers.append(ssh)
+		self.progress.total += 1
+
+
+	# start threads
+	def start(self, delay=100, procs=500):
+		for s in self.servers:
+			s.start()
+			self.progress.active += 1
+			with self.progress.lock:
+				self.progress.update()
+			time.sleep(float(delay)/1000.0)
+			self.wait(procs)
+
+
+	# join all threads
+	def join(self):
+		for s in self.servers:
+			s.join()
+
+# main program
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser()
+	parser.add_argument('-d', '--delay', default=100, type=int, help='delay between each ssh fork (default 100 msec)')
+	parser.add_argument('-f', '--file', default=sys.stdin, type=argparse.FileType('r'), help='file with the list of hosts (default: read from stdin)')
+	parser.add_argument('-p', '--procs', default=500, type=int, help='number of parallel ssh processes (default: 500)')
+	parser.add_argument('-n', '--nostrict', default=False, action='store_true', help='disable strict ssh fingerprint checking')
+	parser.add_argument('-u', '--user', default='root', type=str, help='ssh login as this username')
+	parser.add_argument('command', type=str, help='the actual command to run on servers')
+	args = parser.parse_args()
+
+	# ssh group instance
+	group = SshGroup(args)
+
+	# parse servers list
+	for server in map(lambda x: x.strip(), args.file):
+		if not server or server.startswith('#'):
+			continue
+		group.command(args.user, server, args.command)
+
+	sys.stderr.write('gssh - group ssh, ver. 1.0\n')
+	sys.stderr.write('(c)2014 Bozhin Zafirov <bozhin@deck17.com>\n')
+	sys.stderr.write('\n')
+	sys.stderr.write('  [*] read (%d) hosts from the list\n' % len(group.servers))
+	sys.stderr.write('  [*] executing \'%s\' as user \'%s\'\n' % (args.command, args.user))
+	sys.stderr.write('  [*] spawning %d parallel ssh sessions\n\n' % min((args.procs, len(group.servers))))
+	sys.stderr.flush()
+
+	# start processes
+	group.start(args.delay, args.procs)
+
+	# wait for processes to exit
+	group.join()
+
+	# print stats
+	group.progress.clear()
+	sys.stderr.write(
+		'\n  Done. Processed: %d / Output: %d (%d) / \033[01;32m->\033[0m %d (%d) / \033[01;31m=>\033[0m %d (%d)\n' % (
+			len(group.servers),
+			len(filter(lambda x: x.stdout_lines or x.stderr_lines, group.servers)),
+			sum(map(lambda x: x.stdout_lines + x.stderr_lines, group.servers)),
+			len(filter(lambda x: x.stdout_lines, group.servers)),
+			sum(map(lambda x: x.stdout_lines, group.servers)),
+			len(filter(lambda x: x.stderr_lines, group.servers)),
+			sum(map(lambda x: x.stderr_lines, group.servers)),
+			))
+	sys.stderr.flush()
