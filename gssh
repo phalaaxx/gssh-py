@@ -117,6 +117,7 @@ class SshServer(threading.Thread):
 				if ev & select.POLLHUP == select.POLLHUP:
 					if fd in active:
 						active.remove(fd)
+						poll.unregister(fd)
 
 					if not active:
 						cmd.wait()
