@@ -85,12 +85,6 @@ class SshServer(threading.Thread):
 
 			for fd, ev in evlist:
 
-				if ev & select.POLLHUP == select.POLLHUP:
-					fdhup -= 1
-					if not fdhup:
-						cmd.wait()
-						break
-
 				if ev & select.POLLIN == select.POLLIN or ev & select.POLLPRI == select.POLLPRI:
 					if fd == cmd.stdout.fileno():
 						# stdout print
@@ -100,6 +94,12 @@ class SshServer(threading.Thread):
 						# stderr print
 						self.progress.print_output(sys.stderr, ErrTemplate, self.address, cmd.stderr.readline())
 						self.stderr_lines += 1
+
+				if ev & select.POLLHUP == select.POLLHUP:
+					fdhup -= 1
+					if not fdhup:
+						cmd.wait()
+						break
 
 		self.progress.stop()
 
