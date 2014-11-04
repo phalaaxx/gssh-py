@@ -78,14 +78,13 @@ class SshServer(threading.Thread):
 
 		# poll stdout and stderr for incoming data
 		poll = select.poll()
-		poll.register(cmd.stdout.fileno(), select.POLLIN | select.POLLPRI | select.POLLHUP)
-		poll.register(cmd.stderr.fileno(), select.POLLIN | select.POLLPRI | select.POLLHUP)
 
-		# make file descriptors nonblockin
-		fcntl.fcntl(cmd.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
-		fcntl.fcntl(cmd.stderr.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+		active = [cmd.stdout.fileno(), cmd.stderr.fileno()]
+		for fd in active:
+			# register descriptor in poll object and make it nonblocking
+			poll.register(fd, select.POLLIN | select.POLLPRI | select.POLLHUP)
+			fcntl.fcntl(fd, fcntl.F_SETFL, os.O_NONBLOCK)
 
-		fdhup = 2
 		while cmd.poll() is None:
 			evlist = poll.poll()
 
@@ -116,10 +115,11 @@ class SshServer(threading.Thread):
 								break
 
 				if ev & select.POLLHUP == select.POLLHUP:
-					fdhup -= 1
-					if not fdhup:
+					if fd in active:
+						active.remove(fd)
+
+					if not active:
 						cmd.wait()
-						break
 
 		self.progress.stop()
 
