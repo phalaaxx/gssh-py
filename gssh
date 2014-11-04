@@ -25,6 +25,8 @@ import subprocess
 import sys
 import select
 import argparse
+import fcntl
+import os
 
 # templates
 Template = '%*s%s \033[01;32m->\033[0m %s'
@@ -79,6 +81,10 @@ class SshServer(threading.Thread):
 		poll.register(cmd.stdout.fileno(), select.POLLIN | select.POLLPRI | select.POLLHUP)
 		poll.register(cmd.stderr.fileno(), select.POLLIN | select.POLLPRI | select.POLLHUP)
 
+		# make file descriptors nonblockin
+		fcntl.fcntl(cmd.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+		fcntl.fcntl(cmd.stderr.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
+
 		fdhup = 2
 		while cmd.poll() is None:
 			evlist = poll.poll()
@@ -88,12 +94,26 @@ class SshServer(threading.Thread):
 				if ev & select.POLLIN == select.POLLIN or ev & select.POLLPRI == select.POLLPRI:
 					if fd == cmd.stdout.fileno():
 						# stdout print
-						self.progress.print_output(sys.stdout, Template, self.address, cmd.stdout.readline())
-						self.stdout_lines += 1
+						while True:
+							try:
+								line = cmd.stdout.readline()
+								if not line:
+									break
+								self.progress.print_output(sys.stdout, Template, self.address, line)
+								self.stdout_lines += 1
+							except IOError, e:
+								break
 					if fd == cmd.stderr.fileno():
 						# stderr print
-						self.progress.print_output(sys.stderr, ErrTemplate, self.address, cmd.stderr.readline())
-						self.stderr_lines += 1
+						while True:
+							try:
+								line = cmd.stderr.readline()
+								if not line:
+									break
+								self.progress.print_output(sys.stderr, ErrTemplate, self.address, line)
+								self.stderr_lines += 1
+							except IOError, e:
+								break
 
 				if ev & select.POLLHUP == select.POLLHUP:
 					fdhup -= 1
