@@ -35,6 +35,19 @@ if not sys.stdout.isatty():
 	Template = '%*s%s -> %s'
 	ErrTemplate = '%*s%s => %s'
 
+# non-blocking readline
+def nb_readline(line, std):
+	try:
+		while True:
+			c = std.read(1)
+			line += c
+			if c in ('\n', ''):
+				break
+	except IOError, e:
+		pass
+
+	return line
+
 # ssh server
 class SshServer(threading.Thread):
 	def __init__(self, progress, username, address, command, nostrict=False):
@@ -85,34 +98,32 @@ class SshServer(threading.Thread):
 			poll.register(fd, select.POLLIN | select.POLLPRI | select.POLLHUP)
 			fcntl.fcntl(fd, fcntl.F_SETFL, os.O_NONBLOCK)
 
+		line_stdout = ''
+		line_stderr = ''
 		while cmd.poll() is None:
 			evlist = poll.poll()
 
 			for fd, ev in evlist:
-
 				if ev & select.POLLIN == select.POLLIN or ev & select.POLLPRI == select.POLLPRI:
 					if fd == cmd.stdout.fileno():
 						# stdout print
 						while True:
-							try:
-								line = cmd.stdout.readline()
-								if not line:
-									break
-								self.progress.print_output(sys.stdout, Template, self.address, line)
-								self.stdout_lines += 1
-							except IOError, e:
+							line_stdout = nb_readline(line_stdout, cmd.stdout)
+							if not line_stdout or not line_stdout.endswith('\n'):
 								break
+							self.progress.print_output(sys.stdout, Template, self.address, line_stdout)
+							self.stdout_lines += 1
+							line_stdout = ''
+
 					if fd == cmd.stderr.fileno():
 						# stderr print
 						while True:
-							try:
-								line = cmd.stderr.readline()
-								if not line:
-									break
-								self.progress.print_output(sys.stderr, ErrTemplate, self.address, line)
-								self.stderr_lines += 1
-							except IOError, e:
+							line_stderr = nb_readline(line_stderr, cmd.stderr)
+							if not line_stderr or not line_stderr.endswith('\n'):
 								break
+							self.progress.print_output(sys.stderr, ErrTemplate, self.address, line_stderr)
+							self.stderr_lines += 1
+							line_stderr = ''
 
 				if ev & select.POLLHUP == select.POLLHUP:
 					if fd in active:
