@@ -2,7 +2,7 @@
 
 #
 # gssh - run a single command on multiple servers at once
-# Copyright (C) 2014 Bozhin Zafirov <bozhin@deck17.com>
+# Copyright (C) 2014-2017 Bozhin Zafirov <bozhin@deck17.com>
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -259,7 +259,7 @@ if __name__ == '__main__':
         group.command(args.user, server, args.command)
 
     sys.stderr.write('gssh - group ssh, ver. 1.0\n')
-    sys.stderr.write('(c)2014 Bozhin Zafirov <bozhin@deck17.com>\n')
+    sys.stderr.write('(c)2014-2017 Bozhin Zafirov <bozhin@deck17.com>\n')
     sys.stderr.write('\n')
     sys.stderr.write('  [*] read (%d) hosts from the list\n' % len(group.servers))
     sys.stderr.write('  [*] executing \'%s\' as user \'%s\'\n' % (args.command, args.user))
