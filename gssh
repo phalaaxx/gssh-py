@@ -27,6 +27,7 @@ import select
 import argparse
 import fcntl
 import os
+import io
 
 # templates
 Template = '%*s%s \033[01;32m->\033[0m %s'
@@ -37,13 +38,13 @@ if not sys.stdout.isatty():
 
 
 # non-blocking read line
-def nb_read_line(line, std):
+def nb_read_line(line: str, std: io.BufferedReader) -> str:
     try:
-        while True:
+        while not line.endswith('\r\n'):
             c = std.read(1)
-            line += c
-            if c in ('\n', ''):
+            if not c:
                 break
+            line = line + c.decode()
     except IOError:
         pass
 
@@ -100,8 +101,8 @@ class SshServer(threading.Thread):
             poll.register(fd, select.POLLIN | select.POLLPRI | select.POLLHUP)
             fcntl.fcntl(fd, fcntl.F_SETFL, os.O_NONBLOCK)
 
-        line_stdout = ''
-        line_stderr = ''
+        line_stdout = str()
+        line_stderr = str()
         while cmd.poll() is None:
             ev_list = poll.poll()
 
