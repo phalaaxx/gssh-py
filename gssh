@@ -36,8 +36,8 @@ if not sys.stdout.isatty():
     ErrTemplate = '%*s%s => %s'
 
 
-# non-blocking readline
-def nb_readline(line, std):
+# non-blocking read line
+def nb_read_line(line, std):
     try:
         while True:
             c = std.read(1)
@@ -103,14 +103,14 @@ class SshServer(threading.Thread):
         line_stdout = ''
         line_stderr = ''
         while cmd.poll() is None:
-            evlist = poll.poll()
+            ev_list = poll.poll()
 
-            for fd, ev in evlist:
+            for fd, ev in ev_list:
                 if ev & select.POLLIN == select.POLLIN or ev & select.POLLPRI == select.POLLPRI:
                     if fd == cmd.stdout.fileno():
                         # stdout print
                         while True:
-                            line_stdout = nb_readline(line_stdout, cmd.stdout)
+                            line_stdout = nb_read_line(line_stdout, cmd.stdout)
                             if not line_stdout or not line_stdout.endswith('\n'):
                                 break
                             self.progress.print_output(sys.stdout, Template, self.address, line_stdout)
@@ -120,7 +120,7 @@ class SshServer(threading.Thread):
                     if fd == cmd.stderr.fileno():
                         # stderr print
                         while True:
-                            line_stderr = nb_readline(line_stderr, cmd.stderr)
+                            line_stderr = nb_read_line(line_stderr, cmd.stderr)
                             if not line_stderr or not line_stderr.endswith('\n'):
                                 break
                             self.progress.print_output(sys.stderr, ErrTemplate, self.address, line_stderr)
@@ -172,18 +172,18 @@ class ScreenProgress(object):
         sys.stderr.flush()
 
     # print server message to stdout
-    def print_output(self, outdev, template, address, line):
+    def print_output(self, out_dev, template, address, line):
         with self.lock:
             self.clear()
-            outdev.write(
+            out_dev.write(
                 template % (
                     self.max_hostname_len - len(address),
                     ' ',
                     address,
                     line))
             self.status()
-            outdev.flush()
-            if outdev != sys.stderr:
+            out_dev.flush()
+            if out_dev != sys.stderr:
                 sys.stderr.flush()
 
     # start a new process
