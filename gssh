@@ -53,12 +53,12 @@ def nb_read_line(line: str, std: io.BufferedReader) -> str:
 
 # ssh server
 class SshServer(threading.Thread):
-    def __init__(self, progress, username, address, command, nostrict=False):
+    def __init__(self, progress, username, address, command, no_strict=False):
         self.progress = progress
         self.username = username
         self.address = address
         self.command = command
-        self.nostrict = nostrict
+        self.no_strict = no_strict
 
         # stats
         self.stdout_lines = 0
@@ -72,7 +72,7 @@ class SshServer(threading.Thread):
     # run the process
     def run(self):
         strict_checking = 'StrictHostKeyChecking=yes'
-        if self.nostrict:
+        if self.no_strict:
             strict_checking = 'StrictHostKeyChecking=no'
 
         # start subprocess
@@ -217,19 +217,19 @@ class SshGroup(object):
 
     # start ssh command
     def command(self, username, address, command):
-        ssh = SshServer(self.progress, username, address, command, self.args.nostrict)
+        ssh = SshServer(self.progress, username, address, command, self.args.no_strict)
         self.servers.append(ssh)
         self.progress.total += 1
 
     # start threads
-    def start(self, delay=100, procs=500):
+    def start(self, delay=100, processes=500):
         for s in self.servers:
             s.start()
             self.progress.active += 1
             with self.progress.lock:
                 self.progress.update()
             time.sleep(float(delay) / 1000.0)
-            self.wait(procs)
+            self.wait(processes)
 
     # join all threads
     def join(self):
@@ -240,11 +240,13 @@ class SshGroup(object):
 # main program
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', '--delay', default=100, type=int, help='delay between each ssh fork (default 100 msec)')
+    parser.add_argument('-d', '--delay', default=100, type=int,
+                        help='delay in milliseconds between each ssh fork (default 100)')
     parser.add_argument('-f', '--file', default=sys.stdin, type=argparse.FileType('r'),
                         help='file with the list of hosts (default: read from stdin)')
-    parser.add_argument('-p', '--procs', default=500, type=int, help='number of parallel ssh processes (default: 500)')
-    parser.add_argument('-n', '--nostrict', default=False, action='store_true',
+    parser.add_argument('-p', '--processes', default=500, type=int,
+                        help='number of parallel ssh processes (default: 500)')
+    parser.add_argument('-n', '--no-strict', default=False, action='store_true',
                         help='disable strict ssh fingerprint checking')
     parser.add_argument('-u', '--user', default='root', type=str, help='ssh login as this username')
     parser.add_argument('command', type=str, help='the actual command to run on servers')
@@ -259,16 +261,16 @@ if __name__ == '__main__':
             continue
         group.command(args.user, server, args.command)
 
-    sys.stderr.write('gssh - group ssh, ver. 1.0\n')
+    sys.stderr.write('gssh - group ssh, ver. 1.1\n')
     sys.stderr.write('(c)2014-2017 Bozhin Zafirov <bozhin@deck17.com>\n')
     sys.stderr.write('\n')
     sys.stderr.write('  [*] read (%d) hosts from the list\n' % len(group.servers))
     sys.stderr.write('  [*] executing \'%s\' as user \'%s\'\n' % (args.command, args.user))
-    sys.stderr.write('  [*] spawning %d parallel ssh sessions\n\n' % min((args.procs, len(group.servers))))
+    sys.stderr.write('  [*] spawning %d parallel ssh sessions\n\n' % min((args.processes, len(group.servers))))
     sys.stderr.flush()
 
     # start processes
-    group.start(args.delay, args.procs)
+    group.start(args.delay, args.processes)
 
     # wait for processes to exit
     group.join()
