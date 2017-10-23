@@ -25,8 +25,6 @@ import subprocess
 import sys
 import select
 import argparse
-import fcntl
-import os
 import io
 
 # templates
@@ -37,14 +35,12 @@ if not sys.stdout.isatty():
     ErrTemplate = '%*s%s => %s'
 
 
-# non-blocking read line
-def nb_read_line(line: str, std: io.BufferedReader) -> str:
+# blocking read line
+def read_line(line: str, std: io.BufferedReader) -> str:
     try:
-        while not line.endswith('\r\n'):
-            c = std.read(1)
-            if not c:
-                break
-            line = line + c.decode()
+        data = std.read()
+        if data:
+            line = line + data.decode()
     except IOError:
         pass
 
@@ -161,7 +157,6 @@ class SshServer(threading.Thread):
         for fd in active:
             # register descriptor in poll object and make it non-blocking
             poll.register(fd, select.POLLIN | select.POLLPRI | select.POLLHUP)
-            fcntl.fcntl(fd, fcntl.F_SETFL, os.O_NONBLOCK)
 
         line_stdout = str()
         line_stderr = str()
@@ -173,7 +168,7 @@ class SshServer(threading.Thread):
                     if fd == cmd.stdout.fileno():
                         # stdout print
                         while True:
-                            line_stdout = nb_read_line(line_stdout, cmd.stdout)
+                            line_stdout = read_line(line_stdout, cmd.stdout)
                             if not line_stdout or not line_stdout.endswith('\n'):
                                 break
                             self.progress.print_output(sys.stdout, Template, self.address, line_stdout)
@@ -183,7 +178,7 @@ class SshServer(threading.Thread):
                     if fd == cmd.stderr.fileno():
                         # stderr print
                         while True:
-                            line_stderr = nb_read_line(line_stderr, cmd.stderr)
+                            line_stderr = read_line(line_stderr, cmd.stderr)
                             if not line_stderr or not line_stderr.endswith('\n'):
                                 break
                             self.progress.print_output(sys.stderr, ErrTemplate, self.address, line_stderr)
