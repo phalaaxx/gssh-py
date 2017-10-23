@@ -2,7 +2,7 @@ gssh
 ----
 
 Run ssh command on a group of servers simultaneously.
-This project was inspired from *mpssh* and is written in pure Python. Its intention is to replace gssh-go and outline differences when writing the same project in both Python and Golang.
+This project was inspired from *mpssh* and is written in Python3. Its intention is to replace gssh-go and outline differences when writing the same project in both Python and Golang.
 
 
 Requirements
@@ -47,18 +47,19 @@ Or to cat list files:
 
 A full list of currently supported arguments can be obtained with the -h option:
 
-	gssh -h
-	usage: gssh [-h] [-d DELAY] [-f FILE] [-p PROCS] [-n] [-u USER] command
-	
-	positional arguments:
-	  command               the actual command to run on servers
-	
-	optional arguments:
-	  -h, --help            show this help message and exit
-	  -d DELAY, --delay DELAY
-	                        delay between each ssh fork (default 100 msec)
-	  -f FILE, --file FILE  file with the list of hosts (default: read from stdin)
-	  -p PROCS, --procs PROCS
-	                        number of parallel ssh processes (default: 500)
-	  -n, --nostrict        disable strict ssh fingerprint checking
-	  -u USER, --user USER  ssh login as this username
+    gssh -h
+    usage: gssh [-h] [-d DELAY] [-f FILE] [-p PROCESSES] [-n] [-u USER] command
+
+    positional arguments:
+      command               the actual command to run on servers
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      -d DELAY, --delay DELAY
+                            delay in milliseconds between each ssh fork (default
+                            100)
+      -f FILE, --file FILE  file with the list of hosts (default: read from stdin)
+      -p PROCESSES, --processes PROCESSES
+                            number of parallel ssh processes (default: 500)
+      -n, --no-strict       disable strict ssh fingerprint checking
+      -u USER, --user USER  ssh login as this username
