@@ -19,13 +19,13 @@
 #   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #
 
-import time
-import threading
-import subprocess
-import sys
-import select
 import argparse
 import io
+import select
+import subprocess
+import sys
+import threading
+import time
 
 # templates
 Template = '%*s%s \033[01;32m->\033[0m %s'
