@@ -51,9 +51,71 @@ def nb_read_line(line: str, std: io.BufferedReader) -> str:
     return line
 
 
+# print group progress in a status line
+class ScreenProgress(object):
+    # class constructor
+    def __init__(self) -> None:
+        self.active = 0
+        self.total = 0
+        self.complete = 0
+
+        self.max_hostname_len = 0
+
+        # thread mutex
+        self.lock = threading.RLock()
+
+    # clear status line
+    @staticmethod
+    def clear() -> None:
+        sys.stderr.write('\r%*s\r' % (41, ' '))
+
+    # print a new status line
+    def status(self):
+        sys.stderr.write(
+            '[%d/%d] %.2f%% complete, %d active' % (
+                self.complete,
+                self.total,
+                float(self.complete) * float(100.0) / float(self.total),
+                self.active))
+
+    # update progress line on stderr
+    def update(self) -> None:
+        self.clear()
+        self.status()
+        sys.stderr.flush()
+
+    # print server message to stdout
+    def print_output(self, out_dev: io.BufferedWriter, template: str, address: str, line: str) -> None:
+        with self.lock:
+            self.clear()
+            out_dev.write(
+                template % (
+                    self.max_hostname_len - len(address),
+                    ' ',
+                    address,
+                    line))
+            self.status()
+            out_dev.flush()
+            if out_dev != sys.stderr:
+                sys.stderr.flush()
+
+    # start a new process
+    def start(self, hostname: str) -> None:
+        if len(hostname) + 1 > self.max_hostname_len:
+            self.max_hostname_len = len(hostname) + 1
+
+    # update stats at process stop
+    def stop(self) -> None:
+        with self.lock:
+            self.active -= 1
+            self.complete += 1
+            self.update()
+
+
 # ssh server
 class SshServer(threading.Thread):
-    def __init__(self, progress, username, address, command, no_strict=False):
+    def __init__(self, progress: ScreenProgress, username: str, address: str, command: str,
+                 no_strict: bool = False) -> None:
         self.progress = progress
         self.username = username
         self.address = address
@@ -70,7 +132,7 @@ class SshServer(threading.Thread):
         self.progress.start(self.address)
 
     # run the process
-    def run(self):
+    def run(self) -> None:
         strict_checking = 'StrictHostKeyChecking=yes'
         if self.no_strict:
             strict_checking = 'StrictHostKeyChecking=no'
@@ -139,90 +201,29 @@ class SshServer(threading.Thread):
         self.progress.stop()
 
 
-# print group progress in a status line
-class ScreenProgress(object):
-    # class constructor
-    def __init__(self):
-        self.active = 0
-        self.total = 0
-        self.complete = 0
-
-        self.max_hostname_len = 0
-
-        # thread mutex
-        self.lock = threading.RLock()
-
-    # clear status line
-    @staticmethod
-    def clear():
-        sys.stderr.write('\r%*s\r' % (41, ' '))
-
-    # print a new status line
-    def status(self):
-        sys.stderr.write(
-            '[%d/%d] %.2f%% complete, %d active' % (
-                self.complete,
-                self.total,
-                float(self.complete) * float(100.0) / float(self.total),
-                self.active))
-
-    # update progress line on stderr
-    def update(self):
-        self.clear()
-        self.status()
-        sys.stderr.flush()
-
-    # print server message to stdout
-    def print_output(self, out_dev, template, address, line):
-        with self.lock:
-            self.clear()
-            out_dev.write(
-                template % (
-                    self.max_hostname_len - len(address),
-                    ' ',
-                    address,
-                    line))
-            self.status()
-            out_dev.flush()
-            if out_dev != sys.stderr:
-                sys.stderr.flush()
-
-    # start a new process
-    def start(self, hostname):
-        if len(hostname) + 1 > self.max_hostname_len:
-            self.max_hostname_len = len(hostname) + 1
-
-    # update stats at process stop
-    def stop(self):
-        with self.lock:
-            self.active -= 1
-            self.complete += 1
-            self.update()
-
-
 # group ssh servers to a single object
 class SshGroup(object):
     # class constructor
-    def __init__(self, _args):
+    def __init__(self, _args) -> None:
         self.args = _args
         self.servers = []
         self.progress = ScreenProgress()
 
     # wait until there are at most n processes left
-    def wait(self, n=0):
+    def wait(self, n: int = 0) -> None:
         while True:
             if self.progress.active == 0 or self.progress.active < n:
                 break
             time.sleep(0.1)
 
     # start ssh command
-    def command(self, username, address, command):
+    def command(self, username: str, address: str, command: str) -> None:
         ssh = SshServer(self.progress, username, address, command, self.args.no_strict)
         self.servers.append(ssh)
         self.progress.total += 1
 
     # start threads
-    def start(self, delay=100, processes=500):
+    def start(self, delay: int = 100, processes: int = 500) -> None:
         for s in self.servers:
             s.start()
             self.progress.active += 1
@@ -232,7 +233,7 @@ class SshGroup(object):
             self.wait(processes)
 
     # join all threads
-    def join(self):
+    def join(self) -> None:
         for s in self.servers:
             s.join()
 
