@@ -38,7 +38,7 @@ if not sys.stdout.isatty():
 # blocking read line
 def read_line(line: str, std: io.BufferedReader) -> str:
     try:
-        data = std.read()
+        data = std.readline()
         if data:
             line = line + data.decode()
     except IOError:
