@@ -21,12 +21,11 @@
 
 import argparse
 import io
-import select
 import subprocess
 import sys
-import threading
 import time
 import configparser
+import asyncio
 
 # templates
 Template = '%*s%s \033[01;32m->\033[0m %s'
@@ -34,18 +33,6 @@ ErrTemplate = '%*s%s \033[01;31m=>\033[0m %s'
 if not sys.stdout.isatty():
     Template = '%*s%s -> %s'
     ErrTemplate = '%*s%s => %s'
-
-
-# blocking read line
-def read_line(line: str, std: io.BufferedReader) -> str:
-    try:
-        data = std.readline()
-        if data:
-            line = line + data.decode()
-    except IOError:
-        pass
-
-    return line
 
 
 # print group progress in a status line
@@ -57,9 +44,6 @@ class ScreenProgress(object):
         self.complete = 0
 
         self.max_hostname_len = 0
-
-        # thread mutex
-        self.lock = threading.RLock()
 
     # clear status line
     @staticmethod
@@ -83,18 +67,17 @@ class ScreenProgress(object):
 
     # print server message to stdout
     def print_output(self, out_dev: io.BufferedWriter, template: str, address: str, line: str) -> None:
-        with self.lock:
-            self.clear()
-            out_dev.write(
-                template % (
-                    self.max_hostname_len - len(address),
-                    ' ',
-                    address,
-                    line))
-            self.status()
-            out_dev.flush()
-            if out_dev != sys.stderr:
-                sys.stderr.flush()
+        self.clear()
+        out_dev.write(
+            template % (
+                self.max_hostname_len - len(address),
+                ' ',
+                address,
+                line))
+        self.status()
+        out_dev.flush()
+        if out_dev != sys.stderr:
+            sys.stderr.flush()
 
     # start a new process
     def start(self, hostname: str) -> None:
@@ -109,8 +92,10 @@ class ScreenProgress(object):
             self.update()
 
 
+readers = 0
+
 # ssh server
-class SshServer(threading.Thread):
+class SshServer(object):
     def __init__(self, progress: ScreenProgress, username: str, address: str, command: str,
                  no_strict: bool = False) -> None:
         self.progress = progress
@@ -129,7 +114,7 @@ class SshServer(threading.Thread):
         self.progress.start(self.address)
 
     # run the process
-    def run(self) -> None:
+    def run(self, loop) -> None:
         strict_checking = 'StrictHostKeyChecking=yes'
         if self.no_strict:
             strict_checking = 'StrictHostKeyChecking=no'
@@ -151,50 +136,34 @@ class SshServer(threading.Thread):
             stderr=subprocess.PIPE,
             shell=False)
 
-        # poll stdout and stderr for incoming data
-        poll = select.poll()
 
-        active = [cmd.stdout.fileno(), cmd.stderr.fileno()]
-        for fd in active:
-            # register descriptor in poll object and make it non-blocking
-            poll.register(fd, select.POLLIN | select.POLLPRI | select.POLLHUP)
+        def get_reader(fd, stdout=True):
+            global readers
+            readers += 1
 
-        line_stdout = str()
-        line_stderr = str()
-        while cmd.poll() is None:
-            ev_list = poll.poll()
+            def reader(*args):
+                global readers
+                line = str()
+                while True:
+                    line = fd.readline()
+                    if not line:
+                        loop.remove_reader(fd)
+                        readers -= 1
+                        if not readers:
+                            loop.stop()
+                        break
+                    if stdout:
+                        self.progress.print_output(sys.stdout, Template, self.address, line.decode())
+                        self.stdout_lines += 1
+                    else:
+                        self.progress.print_output(sys.stderr, ErrTemplate, self.address, line.decode())
+                        self.stderr_lines += 1
 
-            for fd, ev in ev_list:
-                if ev & select.POLLIN == select.POLLIN or ev & select.POLLPRI == select.POLLPRI:
-                    if fd == cmd.stdout.fileno():
-                        # stdout print
-                        while True:
-                            line_stdout = read_line(line_stdout, cmd.stdout)
-                            if not line_stdout or not line_stdout.endswith('\n'):
-                                break
-                            self.progress.print_output(sys.stdout, Template, self.address, line_stdout)
-                            self.stdout_lines += 1
-                            line_stdout = ''
+            return reader
 
-                    if fd == cmd.stderr.fileno():
-                        # stderr print
-                        while True:
-                            line_stderr = read_line(line_stderr, cmd.stderr)
-                            if not line_stderr or not line_stderr.endswith('\n'):
-                                break
-                            self.progress.print_output(sys.stderr, ErrTemplate, self.address, line_stderr)
-                            self.stderr_lines += 1
-                            line_stderr = ''
-
-                if ev & select.POLLHUP == select.POLLHUP:
-                    if fd in active:
-                        active.remove(fd)
-                        poll.unregister(fd)
-
-                    if not active:
-                        cmd.wait()
-
-        self.progress.stop()
+        global readers
+        loop.add_reader(cmd.stdout, get_reader(cmd.stdout, True))
+        loop.add_reader(cmd.stderr, get_reader(cmd.stderr, False))
 
 
 # group ssh servers to a single object
@@ -205,13 +174,6 @@ class SshGroup(object):
         self.servers = []
         self.progress = ScreenProgress()
 
-    # wait until there are at most n processes left
-    def wait(self, n: int = 0) -> None:
-        while True:
-            if self.progress.active == 0 or self.progress.active < n:
-                break
-            time.sleep(0.1)
-
     # start ssh command
     def command(self, username: str, address: str, command: str) -> None:
         ssh = SshServer(self.progress, username, address, command, self.args.no_strict)
@@ -220,18 +182,11 @@ class SshGroup(object):
 
     # start threads
     def start(self, delay: int = 100, processes: int = 500) -> None:
+        loop = asyncio.get_event_loop()
         for s in self.servers:
-            s.start()
-            self.progress.active += 1
-            with self.progress.lock:
-                self.progress.update()
+            s.run(loop)
             time.sleep(float(delay) / 1000.0)
-            self.wait(processes)
-
-    # join all threads
-    def join(self) -> None:
-        for s in self.servers:
-            s.join()
+        loop.run_forever()
 
 
 # main program
@@ -271,7 +226,7 @@ if __name__ == '__main__':
     for server in servers_list:
         group.command(args.user, server, args.command)
 
-    sys.stderr.write('gssh - group ssh, ver. 1.1\n')
+    sys.stderr.write('gssh - group ssh, ver. 1.2\n')
     sys.stderr.write('(c)2014-2018 Bozhin Zafirov <bozhin@deck17.com>\n')
     sys.stderr.write('\n')
     sys.stderr.write('  [*] read (%d) hosts from the list\n' % len(group.servers))
@@ -281,9 +236,6 @@ if __name__ == '__main__':
 
     # start processes
     group.start(args.delay, args.processes)
-
-    # wait for processes to exit
-    group.join()
 
     # print stats
     group.progress.clear()
