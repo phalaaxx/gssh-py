@@ -26,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+import configparser
 
 # templates
 Template = '%*s%s \033[01;32m->\033[0m %s'
@@ -245,6 +246,10 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--no-strict', default=False, action='store_true',
                         help='disable strict ssh fingerprint checking')
     parser.add_argument('-u', '--user', default='root', type=str, help='ssh login as this username')
+    parser.add_argument('-a', '--ansible', default=False, action='store_true',
+                        help='read ansible hosts file at /etc/ansible/hosts')
+    parser.add_argument('-s', '--section', default=None, type=str,
+                        help='name of ansible ini section containing servers list')
     parser.add_argument('command', type=str, help='the actual command to run on servers')
     args = parser.parse_args()
 
@@ -252,13 +257,22 @@ if __name__ == '__main__':
     group = SshGroup(args)
 
     # parse servers list
-    for server in map(lambda x: x.strip(), args.file):
-        if not server or server.startswith('#'):
-            continue
+    servers_list = []
+    if args.ansible:
+        config = configparser.ConfigParser(strict=False, allow_no_value=True)
+        config.read('/etc/ansible/hosts')
+        for section in config.sections():
+            if args.section and section != args.section:
+                continue
+            servers_list.extend([line.split()[0] for line in config.options(section)])
+    else:
+        servers_list = [server.strip() for server in args.file if server and not server.startswith('#')]
+
+    for server in servers_list:
         group.command(args.user, server, args.command)
 
     sys.stderr.write('gssh - group ssh, ver. 1.1\n')
-    sys.stderr.write('(c)2014-2017 Bozhin Zafirov <bozhin@deck17.com>\n')
+    sys.stderr.write('(c)2014-2018 Bozhin Zafirov <bozhin@deck17.com>\n')
     sys.stderr.write('\n')
     sys.stderr.write('  [*] read (%d) hosts from the list\n' % len(group.servers))
     sys.stderr.write('  [*] executing \'%s\' as user \'%s\'\n' % (args.command, args.user))
