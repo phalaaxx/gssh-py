@@ -20,7 +20,6 @@
 #
 
 import argparse
-import io
 import subprocess
 import sys
 import time
@@ -37,13 +36,16 @@ if not sys.stdout.isatty():
 
 # print group progress in a status line
 class ScreenProgress(object):
+    # namespace variables
+    max_hostname_len = 0
+    active = 0
+    complete = 0
+    total = 0
+
     # class constructor
     def __init__(self) -> None:
-        self.active = 0
-        self.total = 0
-        self.complete = 0
-
-        self.max_hostname_len = 0
+        self.stdout_lines = 0
+        self.stderr_lines = 0
 
     # clear status line
     @staticmethod
@@ -55,9 +57,9 @@ class ScreenProgress(object):
         sys.stderr.write(
             '[%d/%d] %.2f%% complete, %d active' % (
                 self.complete,
-                self.total,
-                float(self.complete) * float(100.0) / float(self.total),
-                self.active))
+                ScreenProgress.total,
+                float(ScreenProgress.complete) * float(100.0) / float(ScreenProgress.total),
+                ScreenProgress.active))
 
     # update progress line on stderr
     def update(self) -> None:
@@ -66,79 +68,79 @@ class ScreenProgress(object):
         sys.stderr.flush()
 
     # print server message to stdout
-    def print_output(self, out_dev: io.BufferedWriter, template: str, address: str, line: str) -> None:
+    def print_output(self, address: str, line: str, stdout: bool = True) -> None:
         self.clear()
-        out_dev.write(
+        if stdout:
+            output_fd = sys.stdout
+            template = Template
+            self.stdout_lines += 1
+        else:
+            output_fd = sys.stderr
+            template = ErrTemplate
+            self.stderr_lines += 1
+
+        output_fd.write(
             template % (
-                self.max_hostname_len - len(address),
+                ScreenProgress.max_hostname_len - len(address),
                 ' ',
                 address,
                 line))
         self.status()
-        out_dev.flush()
-        if out_dev != sys.stderr:
+        output_fd.flush()
+        if output_fd != sys.stderr:
             sys.stderr.flush()
 
     # start a new process
-    def start(self, hostname: str) -> None:
-        if len(hostname) + 1 > self.max_hostname_len:
-            self.max_hostname_len = len(hostname) + 1
+    @staticmethod
+    def start(hostname: str) -> None:
+        if len(hostname) + 1 > ScreenProgress.max_hostname_len:
+            ScreenProgress.max_hostname_len = len(hostname) + 1
 
     # update stats at process stop
     def stop(self) -> None:
-        with self.lock:
-            self.active -= 1
-            self.complete += 1
-            self.update()
+        ScreenProgress.active -= 1
+        ScreenProgress.complete += 1
+        self.update()
 
 
 def reader_generator():
     data = dict(readers=0)
 
-    def get_reader(fd, loop, print_output, address, stdout=True):
+    def do_get_reader(fd, loop, progress, address, stdout=True):
         data['readers'] += 1
 
-        def reader(*args):
+        def reader(*_args):
             while True:
                 line = fd.readline()
                 if not line:
                     loop.remove_reader(fd)
+                    if data['readers'] % 2 == 0:
+                        progress.stop()
                     data['readers'] -= 1
                     if not data['readers']:
                         loop.stop()
                     break
                 if stdout:
-                    print_output(sys.stdout, Template, address, line.decode())
-                    #self.stdout_lines += 1
+                    progress.print_output(address, line.decode(), stdout=True)
                 else:
-                    print_output(sys.stderr, ErrTemplate, address, line.decode())
-                    #self.stderr_lines += 1
+                    progress.print_output(address, line.decode(), stdout=False)
 
         return reader
-    return get_reader
-
-
-get_reader = reader_generator()
+    return do_get_reader
 
 
 # ssh server
-class SshServer(object):
-    def __init__(self, progress: ScreenProgress, username: str, address: str, command: str,
+class SshServer(ScreenProgress):
+    def __init__(self, username: str, address: str, command: str,
                  no_strict: bool = False) -> None:
-        self.progress = progress
         self.username = username
         self.address = address
         self.command = command
         self.no_strict = no_strict
-
-        # stats
-        self.stdout_lines = 0
-        self.stderr_lines = 0
-
-        super(SshServer, self).__init__()
-
+        ScreenProgress.total += 1
         # update process stats
-        self.progress.start(self.address)
+        super(SshServer, self).__init__()
+        self.start(self.address)
 
     # run the process
     def run(self, loop) -> None:
@@ -147,24 +149,26 @@ class SshServer(object):
             strict_checking = 'StrictHostKeyChecking=no'
 
         # start subprocess
-        cmd = subprocess.Popen([
-            'env',
-            'ssh',
-            '-A',
-            '-o', 'PasswordAuthentication=no',
-            '-o', strict_checking,
-            '-o', 'GSSAPIAuthentication=no',
-            '-o', 'HostbasedAuthentication=no',
-            '-l', self.username,
-            self.address,
-            self.command],
-
+        cmd = subprocess.Popen(
+            [
+                'env',
+                'ssh',
+                '-A',
+                '-o', 'PasswordAuthentication=no',
+                '-o', strict_checking,
+                '-o', 'GSSAPIAuthentication=no',
+                '-o', 'HostbasedAuthentication=no',
+                '-l', self.username,
+                self.address,
+                self.command,
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            shell=False)
+            shell=False,
+        )
 
-        loop.add_reader(cmd.stdout, get_reader(cmd.stdout, loop, self.progress.print_output, self.address, True))
-        loop.add_reader(cmd.stderr, get_reader(cmd.stderr, loop, self.progress.print_output, self.address, False))
+        loop.add_reader(cmd.stdout, get_reader(cmd.stdout, loop, self, self.address, True))
+        loop.add_reader(cmd.stderr, get_reader(cmd.stderr, loop, self, self.address, False))
 
 
 # group ssh servers to a single object
@@ -173,16 +177,14 @@ class SshGroup(object):
     def __init__(self, _args) -> None:
         self.args = _args
         self.servers = []
-        self.progress = ScreenProgress()
 
     # start ssh command
     def command(self, username: str, address: str, command: str) -> None:
-        ssh = SshServer(self.progress, username, address, command, self.args.no_strict)
+        ssh = SshServer(username, address, command, self.args.no_strict)
         self.servers.append(ssh)
-        self.progress.total += 1
 
     # start threads
-    def start(self, delay: int = 100, processes: int = 500) -> None:
+    def start(self, delay: int = 100, _processes: int = 500) -> None:
         loop = asyncio.get_event_loop()
         for s in self.servers:
             s.run(loop)
@@ -211,6 +213,7 @@ if __name__ == '__main__':
 
     # ssh group instance
     group = SshGroup(args)
+    get_reader = reader_generator()
 
     # parse servers list
     servers_list = []
@@ -239,7 +242,7 @@ if __name__ == '__main__':
     group.start(args.delay, args.processes)
 
     # print stats
-    group.progress.clear()
+    ScreenProgress.clear()
     sys.stderr.write(
         '\n  Done. Processed: %d / Output: %d (%d) / \033[01;32m->\033[0m %d (%d) / \033[01;31m=>\033[0m %d (%d)\n' % (
             len(group.servers),
