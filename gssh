@@ -92,7 +92,34 @@ class ScreenProgress(object):
             self.update()
 
 
-readers = 0
+def reader_generator():
+    data = dict(readers=0)
+
+    def get_reader(fd, loop, print_output, address, stdout=True):
+        data['readers'] += 1
+
+        def reader(*args):
+            while True:
+                line = fd.readline()
+                if not line:
+                    loop.remove_reader(fd)
+                    data['readers'] -= 1
+                    if not data['readers']:
+                        loop.stop()
+                    break
+                if stdout:
+                    print_output(sys.stdout, Template, address, line.decode())
+                    #self.stdout_lines += 1
+                else:
+                    print_output(sys.stderr, ErrTemplate, address, line.decode())
+                    #self.stderr_lines += 1
+
+        return reader
+    return get_reader
+
+
+get_reader = reader_generator()
+
 
 # ssh server
 class SshServer(object):
@@ -136,34 +163,8 @@ class SshServer(object):
             stderr=subprocess.PIPE,
             shell=False)
 
-
-        def get_reader(fd, stdout=True):
-            global readers
-            readers += 1
-
-            def reader(*args):
-                global readers
-                line = str()
-                while True:
-                    line = fd.readline()
-                    if not line:
-                        loop.remove_reader(fd)
-                        readers -= 1
-                        if not readers:
-                            loop.stop()
-                        break
-                    if stdout:
-                        self.progress.print_output(sys.stdout, Template, self.address, line.decode())
-                        self.stdout_lines += 1
-                    else:
-                        self.progress.print_output(sys.stderr, ErrTemplate, self.address, line.decode())
-                        self.stderr_lines += 1
-
-            return reader
-
-        global readers
-        loop.add_reader(cmd.stdout, get_reader(cmd.stdout, True))
-        loop.add_reader(cmd.stderr, get_reader(cmd.stderr, False))
+        loop.add_reader(cmd.stdout, get_reader(cmd.stdout, loop, self.progress.print_output, self.address, True))
+        loop.add_reader(cmd.stderr, get_reader(cmd.stderr, loop, self.progress.print_output, self.address, False))
 
 
 # group ssh servers to a single object
