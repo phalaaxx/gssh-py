@@ -106,7 +106,7 @@ class ScreenProgress(object):
 def reader_generator():
     data = dict(readers=0)
 
-    def do_get_reader(fd, loop, progress, address, stdout=True):
+    def do_get_reader(fd, loop: asyncio.BaseEventLoop, progress: ScreenProgress, address: str, stdout=True):
         data['readers'] += 1
 
         def reader(*_args):
@@ -130,10 +130,12 @@ def reader_generator():
     return do_get_reader
 
 
-# ssh server
 class SshServer(ScreenProgress):
+    """SSH Server object"""
+
     def __init__(self, username: str, address: str, command: str,
                  no_strict: bool = False) -> None:
+        """Class constructor"""
         self.username = username
         self.address = address
         self.command = command
@@ -143,12 +145,11 @@ class SshServer(ScreenProgress):
         super(SshServer, self).__init__()
         self.start(self.address)
 
-    # run the process
     def run(self, loop) -> None:
+        """Fork a background process and attach readers to asyncio event loop"""
         strict_checking = 'StrictHostKeyChecking=yes'
         if self.no_strict:
             strict_checking = 'StrictHostKeyChecking=no'
-
         # start subprocess
         cmd = subprocess.Popen(
             [
@@ -167,30 +168,39 @@ class SshServer(ScreenProgress):
             stderr=subprocess.PIPE,
             shell=False,
         )
-
+        # create readers for subprocess stdin and stdout and attach to event loop
         loop.add_reader(cmd.stdout, get_reader(cmd.stdout, loop, self, self.address, True))
         loop.add_reader(cmd.stderr, get_reader(cmd.stderr, loop, self, self.address, False))
 
 
-# group ssh servers to a single object
 class SshGroup(object):
-    # class constructor
+    """SSH Servers Group object"""
+
     def __init__(self, _args) -> None:
+        """Class constructor"""
         self.args = _args
         self.servers = []
 
-    # start ssh command
     def command(self, username: str, address: str, command: str) -> None:
+        """Start ssh command"""
         ssh = SshServer(username, address, command, self.args.no_strict)
         self.servers.append(ssh)
 
-    # start threads
-    def start(self, delay: int = 100, _processes: int = 500) -> None:
+    def init_servers(self, loop, delay: int = 100, processes: int = 500):
+        """Gradually fork background workers by keeping their number below processes value"""
+        float_delay = float(delay) / 1000.0
+        for server in self.servers:
+            while ScreenProgress.active > processes:
+                time.sleep(float_delay)
+            server.run(loop)
+            time.sleep(float_delay)
+
+    def start(self, delay: int = 100, processes: int = 500) -> None:
+        """Start asyncio loop"""
         loop = asyncio.get_event_loop()
-        for s in self.servers:
-            s.run(loop)
-            time.sleep(float(delay) / 1000.0)
+        loop.call_soon(self.init_servers, loop, delay, processes)
         loop.run_forever()
+        loop.close()
 
 
 # main program
