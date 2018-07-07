@@ -35,16 +35,16 @@ class ScreenProgress(object):
     active = 0
     complete = 0
     total = 0
-    Template = '%*s%s \033[01;32m->\033[0m %s'
-    ErrTemplate = '%*s%s \033[01;31m=>\033[0m %s'
+    stdout_template = '%*s%s \033[01;32m->\033[0m %s'
+    stderr_template = '%*s%s \033[01;31m=>\033[0m %s'
 
     def __init__(self) -> None:
         """Class constructor"""
         self.stdout_lines = 0
         self.stderr_lines = 0
         if not sys.stdout.isatty():
-            ScreenProgress.Template = '%*s%s -> %s'
-            ScreenProgress.ErrTemplate = '%*s%s => %s'
+            ScreenProgress.stdout_template = '%*s%s -> %s'
+            ScreenProgress.stderr_template = '%*s%s => %s'
 
     @staticmethod
     def clear() -> None:
@@ -71,11 +71,11 @@ class ScreenProgress(object):
         self.clear()
         if stdout:
             output_fd = sys.stdout
-            template = self.Template
+            template = self.stdout_template
             self.stdout_lines += 1
         else:
             output_fd = sys.stderr
-            template = self.ErrTemplate
+            template = self.stderr_template
             self.stderr_lines += 1
         output_fd.write(
             template % (
