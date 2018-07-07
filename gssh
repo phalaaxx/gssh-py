@@ -34,26 +34,27 @@ if not sys.stdout.isatty():
     ErrTemplate = '%*s%s => %s'
 
 
-# print group progress in a status line
 class ScreenProgress(object):
+    """Display nice running progress information"""
+
     # namespace variables
     max_hostname_len = 0
     active = 0
     complete = 0
     total = 0
 
-    # class constructor
     def __init__(self) -> None:
+        """Class constructor"""
         self.stdout_lines = 0
         self.stderr_lines = 0
 
-    # clear status line
     @staticmethod
     def clear() -> None:
+        """Clear status line"""
         sys.stderr.write('\r%*s\r' % (41, ' '))
 
-    # print a new status line
     def status(self):
+        """Display status line"""
         sys.stderr.write(
             '[%d/%d] %.2f%% complete, %d active' % (
                 self.complete,
@@ -61,14 +62,14 @@ class ScreenProgress(object):
                 float(ScreenProgress.complete) * float(100.0) / float(ScreenProgress.total),
                 ScreenProgress.active))
 
-    # update progress line on stderr
     def update(self) -> None:
+        """Update progress line on stderr"""
         self.clear()
         self.status()
         sys.stderr.flush()
 
-    # print server message to stdout
     def print_output(self, address: str, line: str, stdout: bool = True) -> None:
+        """Print message received from server to stdout"""
         self.clear()
         if stdout:
             output_fd = sys.stdout
@@ -78,7 +79,6 @@ class ScreenProgress(object):
             output_fd = sys.stderr
             template = ErrTemplate
             self.stderr_lines += 1
-
         output_fd.write(
             template % (
                 ScreenProgress.max_hostname_len - len(address),
@@ -90,26 +90,23 @@ class ScreenProgress(object):
         if output_fd != sys.stderr:
             sys.stderr.flush()
 
-    # start a new process
-    @staticmethod
-    def start(hostname: str) -> None:
-        if len(hostname) + 1 > ScreenProgress.max_hostname_len:
-            ScreenProgress.max_hostname_len = len(hostname) + 1
-
-    # update stats at process stop
     def stop(self) -> None:
+        """Update progress when background process was stopped"""
         ScreenProgress.active -= 1
         ScreenProgress.complete += 1
         self.update()
 
 
 def reader_generator():
+    """A generator that encapsulates readers variable"""
     data = dict(readers=0)
 
     def do_get_reader(fd, loop: asyncio.BaseEventLoop, progress: ScreenProgress, address: str, stdout=True):
+        """A generator function that updates readers variable and returns actual reader callback"""
         data['readers'] += 1
 
         def reader(*_args):
+            """Read data from subprocess stdout/stderr and print on screen"""
             while True:
                 line = fd.readline()
                 if not line:
@@ -140,10 +137,7 @@ class SshServer(ScreenProgress):
         self.address = address
         self.command = command
         self.no_strict = no_strict
-        ScreenProgress.total += 1
-        # update process stats
         super(SshServer, self).__init__()
-        self.start(self.address)
 
     def run(self, loop) -> None:
         """Fork a background process and attach readers to asyncio event loop"""
@@ -197,7 +191,10 @@ class SshGroup(object):
             ScreenProgress.active += 1
 
     def start(self, delay: int = 100, processes: int = 500) -> None:
-        """Start asyncio loop"""
+        """Finish initialization and run asyncio loop"""
+        ScreenProgress.max_hostname_len = max(map(lambda s: len(s.address), self.servers)) + 1
+        ScreenProgress.total = len(self.servers)
+        # prepare and start loop
         loop = asyncio.get_event_loop()
         loop.call_soon(self.init_servers, loop, delay, processes)
         loop.run_forever()
