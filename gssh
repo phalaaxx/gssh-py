@@ -162,7 +162,7 @@ class SshServer(ScreenProgress):
             stderr=subprocess.PIPE,
             shell=False,
         )
-        # create readers for subprocess stdin and stdout and attach to event loop
+        # create readers for subprocess stdout and stderr and attach to event loop
         loop.add_reader(cmd.stdout, get_reader(cmd.stdout, loop, self, self.address, True))
         loop.add_reader(cmd.stderr, get_reader(cmd.stderr, loop, self, self.address, False))
 
