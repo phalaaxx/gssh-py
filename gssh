@@ -26,13 +26,6 @@ import subprocess
 import sys
 import time
 
-# templates
-Template = '%*s%s \033[01;32m->\033[0m %s'
-ErrTemplate = '%*s%s \033[01;31m=>\033[0m %s'
-if not sys.stdout.isatty():
-    Template = '%*s%s -> %s'
-    ErrTemplate = '%*s%s => %s'
-
 
 class ScreenProgress(object):
     """Display nice running progress information"""
@@ -42,11 +35,16 @@ class ScreenProgress(object):
     active = 0
     complete = 0
     total = 0
+    Template = '%*s%s \033[01;32m->\033[0m %s'
+    ErrTemplate = '%*s%s \033[01;31m=>\033[0m %s'
 
     def __init__(self) -> None:
         """Class constructor"""
         self.stdout_lines = 0
         self.stderr_lines = 0
+        if not sys.stdout.isatty():
+            ScreenProgress.Template = '%*s%s -> %s'
+            ScreenProgress.ErrTemplate = '%*s%s => %s'
 
     @staticmethod
     def clear() -> None:
@@ -73,11 +71,11 @@ class ScreenProgress(object):
         self.clear()
         if stdout:
             output_fd = sys.stdout
-            template = Template
+            template = self.Template
             self.stdout_lines += 1
         else:
             output_fd = sys.stderr
-            template = ErrTemplate
+            template = self.ErrTemplate
             self.stderr_lines += 1
         output_fd.write(
             template % (
