@@ -194,6 +194,7 @@ class SshGroup(object):
                 time.sleep(float_delay)
             server.run(loop)
             time.sleep(float_delay)
+            ScreenProgress.active += 1
 
     def start(self, delay: int = 100, processes: int = 500) -> None:
         """Start asyncio loop"""
