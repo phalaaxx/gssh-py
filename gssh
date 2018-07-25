@@ -95,34 +95,40 @@ class ScreenProgress(object):
         self.update()
 
 
-def reader_generator():
-    """A generator that encapsulates readers variable"""
+def pipe_reader_generator(loop_instance):
+    """Generate a pipe reader that outputs stdout and stderr data"""
     data = dict(readers=0)
 
-    def do_get_reader(fd, loop: asyncio.BaseEventLoop, progress: ScreenProgress, address: str, stdout=True):
-        """A generator function that updates readers variable and returns actual reader callback"""
-        data['readers'] += 1
+    def pipe_stream_callback(address: str, progress: ScreenProgress, stdout: bool):
+        """Pipe stream reader callback"""
 
-        def reader(*_args):
-            """Read data from subprocess stdout/stderr and print on screen"""
-            while True:
-                line = fd.readline()
-                if not line:
-                    loop.remove_reader(fd)
-                    if data['readers'] % 2 == 0:
-                        progress.stop()
-                    data['readers'] -= 1
-                    if not data['readers']:
-                        loop.stop()
-                    break
-                if stdout:
-                    progress.print_output(address, line.decode(), stdout=True)
-                else:
-                    progress.print_output(address, line.decode(), stdout=False)
+        class PipeProtocol(asyncio.Protocol):
+            """Subclass of asyncio.Protocol that reads and outputs data"""
 
-        return reader
+            def connection_made(self, _transport):
+                data['readers'] += 1
 
-    return do_get_reader
+            def data_received(self, incoming_data):
+                """Read next line from incoming data"""
+                buffer = getattr(self, 'buffer', '')
+                buffer += incoming_data.decode()
+                while '\n' in buffer:
+                    line = buffer[:buffer.find('\n')+1]
+                    buffer = buffer[len(line):]
+                    progress.print_output(address, line, stdout)
+                if buffer:
+                    setattr(self, 'buffer', buffer)
+
+            def connection_lost(self, _exc):
+                if data['readers'] % 2 == 0:
+                    progress.stop()
+                data['readers'] -= 1
+                if not data['readers']:
+                    loop_instance.stop()
+
+        return PipeProtocol
+
+    return pipe_stream_callback
 
 
 class SshServer(ScreenProgress):
@@ -137,7 +143,7 @@ class SshServer(ScreenProgress):
         self.no_strict = no_strict
         super(SshServer, self).__init__()
 
-    def run(self, loop) -> None:
+    def run(self, loop_instance) -> None:
         """Fork a background process and attach readers to asyncio event loop"""
         strict_checking = 'StrictHostKeyChecking=yes'
         if self.no_strict:
@@ -161,8 +167,8 @@ class SshServer(ScreenProgress):
             shell=False,
         )
         # create readers for subprocess stdout and stderr and attach to event loop
-        loop.add_reader(cmd.stdout, get_reader(cmd.stdout, loop, self, self.address, True))
-        loop.add_reader(cmd.stderr, get_reader(cmd.stderr, loop, self, self.address, False))
+        loop_instance.create_task(loop_instance.connect_read_pipe(pipe_stream(self.address, self, True), cmd.stdout))
+        loop_instance.create_task(loop_instance.connect_read_pipe(pipe_stream(self.address, self, False), cmd.stderr))
 
 
 class SshGroup(object):
@@ -178,25 +184,24 @@ class SshGroup(object):
         ssh = SshServer(username, address, command, self.args.no_strict)
         self.servers.append(ssh)
 
-    def init_servers(self, loop, delay: int = 100, processes: int = 500):
+    def init_servers(self, loop_instance, delay: int = 100, processes: int = 500):
         """Gradually fork background workers by keeping their number below processes value"""
         float_delay = float(delay) / 1000.0
         for server in self.servers:
             while ScreenProgress.active > processes:
                 time.sleep(float_delay)
-            server.run(loop)
+            server.run(loop_instance)
             time.sleep(float_delay)
             ScreenProgress.active += 1
 
-    def start(self, delay: int = 100, processes: int = 500) -> None:
+    def start(self, loop_instance, delay: int = 100, processes: int = 500) -> None:
         """Finish initialization and run asyncio loop"""
         ScreenProgress.max_hostname_len = max(map(lambda s: len(s.address), self.servers)) + 1
         ScreenProgress.total = len(self.servers)
-        # prepare and start loop
-        loop = asyncio.get_event_loop()
-        loop.call_soon(self.init_servers, loop, delay, processes)
-        loop.run_forever()
-        loop.close()
+        # start loop
+        loop_instance.call_soon(self.init_servers, loop_instance, delay, processes)
+        loop_instance.run_forever()
+        loop_instance.close()
 
 
 # main program
@@ -218,9 +223,12 @@ if __name__ == '__main__':
     parser.add_argument('command', type=str, help='the actual command to run on servers')
     args = parser.parse_args()
 
+    # prepare loop
+    loop = asyncio.get_event_loop()
+
     # ssh group instance
     group = SshGroup(args)
-    get_reader = reader_generator()
+    pipe_stream = pipe_reader_generator(loop)
 
     # parse servers list
     servers_list = []
@@ -246,7 +254,7 @@ if __name__ == '__main__':
     sys.stderr.flush()
 
     # start processes
-    group.start(args.delay, args.processes)
+    group.start(loop, args.delay, args.processes)
 
     # print stats
     ScreenProgress.clear()
