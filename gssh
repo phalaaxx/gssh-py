@@ -105,19 +105,21 @@ def pipe_reader_generator(loop_instance):
         class PipeProtocol(asyncio.Protocol):
             """Subclass of asyncio.Protocol that reads and outputs data"""
 
+            def __init__(self, *args, **kwargs):
+                """Inherit class constructor"""
+                super().__init__(*args, **kwargs)
+                self.buffer = b''
+
             def connection_made(self, _transport):
                 data['readers'] += 1
 
             def data_received(self, incoming_data):
                 """Read next line from incoming data"""
-                buffer = getattr(self, 'buffer', '')
-                buffer += incoming_data.decode()
-                while '\n' in buffer:
-                    line = buffer[:buffer.find('\n')+1]
-                    buffer = buffer[len(line):]
-                    progress.print_output(address, line, stdout)
-                if buffer:
-                    setattr(self, 'buffer', buffer)
+                self.buffer += incoming_data
+                while b'\n' in self.buffer:
+                    line = self.buffer[:self.buffer.find(b'\n')+1]
+                    progress.print_output(address, line.decode(), stdout)
+                    self.buffer = self.buffer[len(line):]
 
             def connection_lost(self, _exc):
                 if data['readers'] % 2 == 0:
