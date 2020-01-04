@@ -26,6 +26,8 @@ import subprocess
 import sys
 import time
 
+import yaml
+
 
 class ScreenProgress(object):
     """Display nice running progress information"""
@@ -117,7 +119,7 @@ def pipe_reader_generator(loop_instance):
                 """Read next line from incoming data"""
                 self.buffer += incoming_data
                 while b'\n' in self.buffer:
-                    line = self.buffer[:self.buffer.find(b'\n')+1]
+                    line = self.buffer[:self.buffer.find(b'\n') + 1]
                     progress.print_output(address, line.decode(), stdout)
                     self.buffer = self.buffer[len(line):]
 
@@ -236,11 +238,24 @@ if __name__ == '__main__':
     servers_list = []
     if args.ansible:
         config = configparser.ConfigParser(strict=False, allow_no_value=True)
-        config.read('/etc/ansible/hosts')
-        for section in config.sections():
-            if args.section and section != args.section:
-                continue
-            servers_list.extend([line.split()[0] for line in config.options(section)])
+        try:
+            config.read('/etc/ansible/hosts')
+            for section in config.sections():
+                if args.section and section != args.section:
+                    continue
+                servers_list.extend([line.split()[0] for line in config.options(section)])
+        except configparser.MissingSectionHeaderError as e:
+            with open('/etc/ansible/hosts', 'r') as fh:
+                reader = yaml.load(fh.read())
+            if args.section and args.section in reader:
+                for host, host_data in reader.get(args.section).get('hosts', {}).items():
+                    servers_list.append(host_data.get('ansible_host', host))
+            for section in reader:
+                for host, host_data in reader.get(section).get('hosts', {}).items():
+                    server_address = host_data.get('ansible_host', host)
+                    if args.section and args.section != server_address:
+                        continue
+                    servers_list.append(server_address)
     else:
         servers_list = [server.strip() for server in args.file if server and not server.startswith('#')]
 
