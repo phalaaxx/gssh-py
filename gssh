@@ -248,7 +248,7 @@ if __name__ == '__main__':
         group.command(args.user, server, args.command)
 
     sys.stderr.write('gssh - group ssh, ver. 1.3\n')
-    sys.stderr.write('(c)2014-2018 Bozhin Zafirov <bozhin@deck17.com>\n')
+    sys.stderr.write('(c)2014-2020 Bozhin Zafirov <bozhin@deck17.com>\n')
     sys.stderr.write('\n')
     sys.stderr.write('  [*] read (%d) hosts from the list\n' % len(group.servers))
     sys.stderr.write('  [*] executing \'%s\' as user \'%s\'\n' % (args.command, args.user))
