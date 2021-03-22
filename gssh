@@ -100,6 +100,16 @@ async def run(server) -> None:
     await proc.wait()
 
 
+async def cleanup() -> None:
+    """Wait for servers processes to finish"""
+    while len(CompletedTasks) < len(servers_list):
+        if len(RunningTasks):
+            done, pending = await asyncio.wait(RunningTasks, return_when=asyncio.FIRST_COMPLETED)
+            stop_task(done.pop())
+        else:
+            await asyncio.sleep(0.100)
+
+
 async def process_servers(servers: typing.List[str]) -> None:
     """Initialize ssh connections to servers, wait for and print results"""
     print('gssh - group ssh, ver. 2.0')
@@ -107,21 +117,17 @@ async def process_servers(servers: typing.List[str]) -> None:
     print('  [*] read ({0}) hosts from the list'.format(len(servers)))
     print('  [*] executing \'{0}\' as user \'{1}\''.format(args.command, args.user))
     print('  [*] spawning {0} parallel ssh sessions\n'.format(min((args.processes, len(servers_list)))))
+    # start cleanup process
+    cleanup_task = asyncio.create_task(cleanup())
     # connect to servers
     while len(servers):
         server = servers.pop()
         start_task(asyncio.create_task(run(server)))
-        done, pending = await asyncio.wait(RunningTasks, timeout=0, return_when=asyncio.FIRST_COMPLETED)
-        if len(done):
-            stop_task(done.pop())
         await asyncio.sleep(float(args.delay) / 1000.0)
         while len(RunningTasks) >= args.processes:
-            done, pending = await asyncio.wait(RunningTasks, return_when=asyncio.FIRST_COMPLETED)
-            stop_task(done.pop())
+            await asyncio.sleep(0.100)
     # wait for completion of running tasks
-    while len(RunningTasks):
-        done, pending = await asyncio.wait(RunningTasks, return_when=asyncio.FIRST_COMPLETED)
-        stop_task(done.pop())
+    await cleanup_task
     # print end status line
     clear_status()
     print('\n ', FmtStatus.format(
