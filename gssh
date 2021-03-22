@@ -69,9 +69,7 @@ async def process_print(fmt: str, server: str, channel: asyncio.StreamReader, *s
         print_status(fmt.format(server, output.decode('ascii').strip(), width=max_width))
         # update stats
         for stat in stats:
-            if server not in stat:
-                stat[server] = 0
-            stat[server] = stat[server] + 1
+            stat[server] = stat.get(server, 0) + 1
 
 
 async def run(server) -> None:
