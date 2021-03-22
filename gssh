@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import configparser
 import sys
-import time
 import typing
 
 import yaml
@@ -112,7 +111,10 @@ async def process_servers(servers: typing.List[str]) -> None:
     while len(servers):
         server = servers.pop()
         start_task(asyncio.create_task(run(server)))
-        time.sleep(float(args.delay) / 1000.0)
+        done, pending = await asyncio.wait(RunningTasks, timeout=0, return_when=asyncio.FIRST_COMPLETED)
+        if len(done):
+            stop_task(done.pop())
+        await asyncio.sleep(float(args.delay) / 1000.0)
         while len(RunningTasks) >= args.processes:
             done, pending = await asyncio.wait(RunningTasks, return_when=asyncio.FIRST_COMPLETED)
             stop_task(done.pop())
