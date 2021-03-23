@@ -18,8 +18,8 @@ if not sys.stdout.isatty():
     FmtStatus = 'Done. Processed: {0} / Output: {1} ({2}) / -> {3} ({4}) / => {5} ({6})'
 
 # global variables
-RunningTasks = []
-CompletedTasks = []
+RunningTasks = set()
+CompletedTasks = set()
 TaskOutput = {}
 TaskStdout = {}
 TaskStderr = {}
@@ -49,14 +49,14 @@ def print_status(*arg) -> None:
 
 def start_task(task: object) -> None:
     """Mark task as running"""
-    RunningTasks.append(task)
+    RunningTasks.add(task)
     print_status()
 
 
 def stop_task(task: object) -> None:
     """Mark task as completed"""
     RunningTasks.remove(task)
-    CompletedTasks.append(task)
+    CompletedTasks.add(task)
     print_status()
 
 
