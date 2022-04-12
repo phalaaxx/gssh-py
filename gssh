@@ -128,8 +128,8 @@ async def cleanup() -> None:
 
 async def process_servers(servers: typing.List[str]) -> None:
     """Initialize ssh connections to servers, wait for and print results"""
-    print('gssh - group ssh, ver. 2.0')
-    print('(c) 2014-2021 Bozhin Zafirov <bozhin@deck17.com>\n')
+    print('gssh - group ssh, ver. 2.1')
+    print('(c) 2014-2022 Bozhin Zafirov <bozhin@deck17.com>\n')
     print('  [*] read ({0}) hosts from the list'.format(len(servers)))
     print('  [*] executing \'{0}\' as user \'{1}\''.format(args.command, args.user))
     print('  [*] spawning {0} parallel ssh sessions\n'.format(min((args.processes, len(servers_list)))))
@@ -162,14 +162,15 @@ if __name__ == '__main__':
     # parse command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--delay', default=100, type=int,
-                        help='delay in milliseconds between each ssh fork (default 100)')
+                        help='delay in milliseconds between each ssh fork (default: %(default)d)')
     parser.add_argument('-f', '--file', default=sys.stdin, type=argparse.FileType('r'),
                         help='file with the list of hosts (default: read from stdin)')
     parser.add_argument('-p', '--processes', default=500, type=int,
-                        help='number of parallel ssh processes (default: 500)')
+                        help='number of parallel ssh processes (default: %(default)d)')
     parser.add_argument('-n', '--no-strict', default=False, action='store_true',
                         help='disable strict ssh fingerprint checking')
-    parser.add_argument('-u', '--user', default='root', type=str, help='ssh login as this username')
+    parser.add_argument('-u', '--user', default='root', type=str,
+                        help='ssh login as this username (default: %(default)s)')
     parser.add_argument('-a', '--ansible', default=False, action='store_true',
                         help='read ansible hosts file at /etc/ansible/hosts')
     parser.add_argument('-s', '--section', default=None, type=str,
