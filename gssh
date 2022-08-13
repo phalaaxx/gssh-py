@@ -27,13 +27,13 @@ import typing
 import yaml
 
 # output templates
-FmtStdout = '{0:>{width}} \033[01;32m->\033[0m {1}'
-FmtStderr = '{0:>{width}} \033[01;31m=>\033[0m {1}'
-FmtStatus = 'Done. Processed: {0} / Output: {1} ({2}) / \033[01;32m->\033[0m {3} ({4}) / \033[01;31m=>\033[0m {5} ({6})'
+FmtStdout = "{0:>{width}} \033[01;32m->\033[0m {1}"
+FmtStderr = "{0:>{width}} \033[01;31m=>\033[0m {1}"
+FmtStatus = "Done. Processed: {0} / Output: {1} ({2}) / \033[01;32m->\033[0m {3} ({4}) / \033[01;31m=>\033[0m {5} ({6})"
 if not sys.stdout.isatty():
-    FmtStdout = '{0:>{width}} -> {1}'
-    FmtStderr = '{0:>{width}} => {1}'
-    FmtStatus = 'Done. Processed: {0} / Output: {1} ({2}) / -> {3} ({4}) / => {5} ({6})'
+    FmtStdout = "{0:>{width}} -> {1}"
+    FmtStderr = "{0:>{width}} => {1}"
+    FmtStatus = "Done. Processed: {0} / Output: {1} ({2}) / -> {3} ({4}) / => {5} ({6})"
 
 # global variables
 RunningTasks = set()
@@ -45,7 +45,7 @@ TaskStderr = {}
 
 def clear_status() -> None:
     """Clear running status line"""
-    print('\r{0:41}\r'.format(' '), end='', flush=True)
+    print("\r{0:41}\r".format(" "), end="", flush=True)
 
 
 def print_status(*arg) -> None:
@@ -54,13 +54,13 @@ def print_status(*arg) -> None:
     if len(arg):
         print(*arg)
     print(
-        '[{0}/{1}] {2:.2f}% complete, {3} active'.format(
+        "[{0}/{1}] {2:.2f}% complete, {3} active".format(
             len(CompletedTasks),
             len(servers_list),
             len(CompletedTasks) * 100.0 / len(servers_list),
             len(RunningTasks),
         ),
-        end='',
+        end="",
         flush=True,
     )
 
@@ -78,13 +78,17 @@ def stop_task(task: object) -> None:
     print_status()
 
 
-async def process_print(fmt: str, server: str, channel: asyncio.StreamReader, *stats: typing.Dict[str, int]) -> None:
+async def process_print(
+    fmt: str, server: str, channel: asyncio.StreamReader, *stats: typing.Dict[str, int]
+) -> None:
     """A coroutine to print output from the specified channel"""
     while True:
         output = await channel.readline()
         if not output:
             break
-        print_status(fmt.format(server, output.decode('utf-8').strip(), width=max_width))
+        print_status(
+            fmt.format(server, output.decode("utf-8").strip(), width=max_width)
+        )
         # update stats
         for stat in stats:
             stat[server] = stat.get(server, 0) + 1
@@ -94,22 +98,31 @@ async def run(server) -> None:
     """Start server process and output channels coroutines"""
     # start process and attach stdin and stderr pipes
     proc = await asyncio.create_subprocess_exec(
-        '/usr/bin/ssh',
-        '-A',
-        '-o', 'PasswordAuthentication=no',
-        '-o', 'StrictHostKeyChecking={0}'.format(
-            'no' if args.no_strict else 'yes',
+        "/usr/bin/ssh",
+        "-A",
+        "-o",
+        "PasswordAuthentication=no",
+        "-o",
+        "StrictHostKeyChecking={0}".format(
+            "no" if args.no_strict else "yes",
         ),
-        '-o', 'GSSAPIAuthentication=no',
-        '-o', 'HostbasedAuthentication=no',
-        '-l', args.user,
+        "-o",
+        "GSSAPIAuthentication=no",
+        "-o",
+        "HostbasedAuthentication=no",
+        "-l",
+        args.user,
         server,
         args.command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout = asyncio.create_task(process_print(FmtStdout, server, proc.stdout, TaskOutput, TaskStdout))
-    stderr = asyncio.create_task(process_print(FmtStderr, server, proc.stderr, TaskOutput, TaskStderr))
+    stdout = asyncio.create_task(
+        process_print(FmtStdout, server, proc.stdout, TaskOutput, TaskStdout)
+    )
+    stderr = asyncio.create_task(
+        process_print(FmtStderr, server, proc.stderr, TaskOutput, TaskStderr)
+    )
     # wait for process completion
     await stdout
     await stderr
@@ -120,7 +133,9 @@ async def cleanup() -> None:
     """Wait for servers processes to finish"""
     while len(CompletedTasks) < len(servers_list):
         if len(RunningTasks):
-            done, pending = await asyncio.wait(RunningTasks, return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait(
+                RunningTasks, return_when=asyncio.FIRST_COMPLETED
+            )
             stop_task(done.pop())
         else:
             await asyncio.sleep(0.100)
@@ -128,11 +143,15 @@ async def cleanup() -> None:
 
 async def process_servers(servers: typing.List[str]) -> None:
     """Initialize ssh connections to servers, wait for and print results"""
-    print('gssh - group ssh, ver. 2.1')
-    print('(c) 2014-2022 Bozhin Zafirov <bozhin@deck17.com>\n')
-    print('  [*] read ({0}) hosts from the list'.format(len(servers)))
-    print('  [*] executing \'{0}\' as user \'{1}\''.format(args.command, args.user))
-    print('  [*] spawning {0} parallel ssh sessions\n'.format(min((args.processes, len(servers_list)))))
+    print("gssh - group ssh, ver. 2.1")
+    print("(c) 2014-2022 Bozhin Zafirov <bozhin@deck17.com>\n")
+    print("  [*] read ({0}) hosts from the list".format(len(servers)))
+    print("  [*] executing '{0}' as user '{1}'".format(args.command, args.user))
+    print(
+        "  [*] spawning {0} parallel ssh sessions\n".format(
+            min((args.processes, len(servers_list)))
+        )
+    )
     # start cleanup process
     cleanup_task = asyncio.create_task(cleanup())
     # connect to servers
@@ -146,61 +165,113 @@ async def process_servers(servers: typing.List[str]) -> None:
     await cleanup_task
     # print end status line
     clear_status()
-    print('\n ', FmtStatus.format(
-        len(servers_list),
-        len(TaskOutput),
-        sum(TaskOutput.values()),
-        len(TaskStdout),
-        sum(TaskStdout.values()),
-        len(TaskStderr),
-        sum(TaskStderr.values()),
-    ))
+    print(
+        "\n ",
+        FmtStatus.format(
+            len(servers_list),
+            len(TaskOutput),
+            sum(TaskOutput.values()),
+            len(TaskStdout),
+            sum(TaskStdout.values()),
+            len(TaskStderr),
+            sum(TaskStderr.values()),
+        ),
+    )
 
 
 # main program
-if __name__ == '__main__':
+if __name__ == "__main__":
     # parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', '--delay', default=100, type=int,
-                        help='delay in milliseconds between each ssh fork (default: %(default)d)')
-    parser.add_argument('-f', '--file', default=sys.stdin, type=argparse.FileType('r'),
-                        help='file with the list of hosts (default: read from stdin)')
-    parser.add_argument('-p', '--processes', default=500, type=int,
-                        help='number of parallel ssh processes (default: %(default)d)')
-    parser.add_argument('-n', '--no-strict', default=False, action='store_true',
-                        help='disable strict ssh fingerprint checking')
-    parser.add_argument('-u', '--user', default='root', type=str,
-                        help='ssh login as this username (default: %(default)s)')
-    parser.add_argument('-a', '--ansible', default=False, action='store_true',
-                        help='read ansible hosts file at /etc/ansible/hosts')
-    parser.add_argument('-s', '--section', default=None, type=str,
-                        help='name of ansible ini section containing servers list')
-    parser.add_argument('command', type=str, help='the actual command to run on servers')
+    parser.add_argument(
+        "-d",
+        "--delay",
+        default=100,
+        type=int,
+        help="delay in milliseconds between each ssh fork (default: %(default)d)",
+    )
+    parser.add_argument(
+        "-f",
+        "--file",
+        default=sys.stdin,
+        type=argparse.FileType("r"),
+        help="file with the list of hosts (default: read from stdin)",
+    )
+    parser.add_argument(
+        "-p",
+        "--processes",
+        default=500,
+        type=int,
+        help="number of parallel ssh processes (default: %(default)d)",
+    )
+    parser.add_argument(
+        "-n",
+        "--no-strict",
+        default=False,
+        action="store_true",
+        help="disable strict ssh fingerprint checking",
+    )
+    parser.add_argument(
+        "-u",
+        "--user",
+        default="root",
+        type=str,
+        help="ssh login as this username (default: %(default)s)",
+    )
+    parser.add_argument(
+        "-a",
+        "--ansible",
+        default=False,
+        action="store_true",
+        help="read ansible hosts file at /etc/ansible/hosts",
+    )
+    parser.add_argument(
+        "-s",
+        "--section",
+        default=None,
+        type=str,
+        help="name of ansible ini section containing servers list",
+    )
+    parser.add_argument(
+        "command", type=str, help="the actual command to run on servers"
+    )
     args = parser.parse_args()
     # parse servers list from stdin, text, ini or yaml format
     servers_list = []
     if args.ansible:
         config = configparser.ConfigParser(strict=False, allow_no_value=True)
         try:
-            config.read('/etc/ansible/hosts')
+            config.read("/etc/ansible/hosts")
             for section in config.sections():
                 if args.section and section != args.section:
                     continue
-                servers_list.extend([line.split()[0] for line in config.options(section)])
+                servers_list.extend(
+                    [line.split()[0] for line in config.options(section)]
+                )
         except configparser.MissingSectionHeaderError as e:
-            with open('/etc/ansible/hosts', 'r') as fh:
+            with open("/etc/ansible/hosts", "r") as fh:
                 reader = yaml.load(fh.read())
             if args.section and args.section in reader:
-                for host, host_data in reader.get(args.section).get('hosts', {}).items():
-                    servers_list.append(host if not host_data else host_data.get('ansible_host', host))
+                for host, host_data in (
+                    reader.get(args.section).get("hosts", {}).items()
+                ):
+                    servers_list.append(
+                        host if not host_data else host_data.get("ansible_host", host)
+                    )
             for section in reader:
-                for host, host_data in reader.get(section).get('hosts', {}).items():
-                    server_address = host if not host_data else host_data.get('ansible_host', host)
+                for host, host_data in reader.get(section).get("hosts", {}).items():
+                    server_address = (
+                        host if not host_data else host_data.get("ansible_host", host)
+                    )
                     if args.section and args.section != server_address:
                         continue
                     servers_list.append(server_address)
     else:
-        servers_list = [server.strip() for server in args.file if server and not server.startswith('#')]
+        servers_list = [
+            server.strip()
+            for server in args.file
+            if server and not server.startswith("#")
+        ]
     max_width = max(map(lambda s: len(s), servers_list)) + 1
     # run process_servers coroutine to perform actual work
     asyncio.run(process_servers(servers_list.copy()))
