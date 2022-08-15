@@ -248,7 +248,7 @@ if __name__ == "__main__":
                 servers_list.extend(
                     [line.split()[0] for line in config.options(section)]
                 )
-        except configparser.MissingSectionHeaderError as e:
+        except configparser.MissingSectionHeaderError:
             with open("/etc/ansible/hosts", "r") as fh:
                 reader = yaml.load(fh.read())
             if args.section and args.section in reader:
